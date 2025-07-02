@@ -1,0 +1,23 @@
+server:
+  port: "8080"
+  host: "0.0.0.0"
+
+rabbitmq:
+  url: "amqp://guest:guest@localhost:5672/"
+  ip_queue: "ip_queue"
+  scan_result_queue: "scan_result_queue"
+  enrichment_queue: "enrichment_queue"
+  service_analysis_queue: "service_analysis_queue"
+
+scan:
+  ping_timeout: "5s"
+  connect_timeout: "3s"
+  banner_timeout: "2s"
+  max_retries: 3
+  retry_delay: "1s"
+  concurrency: 100
+  zgrab_concurrency: 20  # Maximum concurrent ZGrab2 processes
+  enable_banner: true
+  enable_ping: true
+  priority_ports: [80, 443, 22, 21, 25, 3306, 5432]  # High-priority ports for ZGrab2
+  default_ports: [21, 22, 23, 25, 53, 80, 110, 143, 443, 993, 995, 3306, 3389, 5432, 8080, 8443] 
