@@ -295,12 +295,12 @@ func (s *ScannerService) identifyService(port int, banner string) string {
 }
 
 // ScanIP performs a complete scan of an IP address
-func (s *ScannerService) ScanIP(ip string, config *ScanConfig) (*ScanResult, error) {
+func (s *ScannerService) ScanIP(ip string, config *ScanConfig, batchID string, workerID string) (*ScanResult, error) {
 	if config == nil {
 		config = s.config
 	}
 
-	result := NewScanResult(ip, "")
+	result := NewScanResult(ip, batchID, workerID)
 	result.Status = ScanStatusRunning
 
 	// Step 1: Ping check (if enabled)

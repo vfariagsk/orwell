@@ -80,16 +80,18 @@ type ScanResult struct {
 	Status        ScanStatus
 	Error         string
 	BatchID       string
+	WorkerID      string
 }
 
 // NewScanResult creates a new scan result
-func NewScanResult(ip string, batchID string) *ScanResult {
+func NewScanResult(ip string, batchID string, workerID string) *ScanResult {
 	return &ScanResult{
 		IP:            ip,
 		ScanStartTime: time.Now(),
 		Status:        ScanStatusPending,
 		BatchID:       batchID,
 		Ports:         make([]*Port, 0),
+		WorkerID:      workerID,
 	}
 }
 
@@ -181,7 +183,7 @@ type Scanner interface {
 	ScanPort(ip string, port int) (*Port, error)
 	ScanPorts(ip string, ports []int) ([]*Port, error)
 	GetBanner(ip string, port int) (*BannerInfo, error)
-	ScanIP(ip string, config *ScanConfig) (*ScanResult, error)
+	ScanIP(ip string, config *ScanConfig, batchID string, workerID string) (*ScanResult, error)
 }
 
 // ScanEngine defines the interface for the main scanning engine

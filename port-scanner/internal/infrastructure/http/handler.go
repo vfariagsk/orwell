@@ -161,7 +161,7 @@ func (h *Handler) ScanIP(c *gin.Context) {
 	}
 
 	// Perform the scan
-	result, err := h.scanner.ScanIP(req.IP, config)
+	result, err := h.scanner.ScanIP(req.IP, config, req.BatchID, "")
 	if err != nil {
 		log.L().Error("Scan failed", zap.String("event", "scanip_failed"), zap.String("ip", req.IP), zap.Error(err))
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -224,7 +224,7 @@ func (h *Handler) ScanBatch(c *gin.Context) {
 			defer func() { <-semaphore }()
 
 			// Perform the scan
-			result, err := h.scanner.ScanIP(ipAddr, config)
+			result, err := h.scanner.ScanIP(ipAddr, config, req.BatchID, "")
 
 			mu.Lock()
 			if err != nil {

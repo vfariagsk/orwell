@@ -100,7 +100,7 @@ func (s *ScanEngineService) processMessage(message *domain.QueueMessage) error {
 			defer func() { <-semaphore }()
 
 			// Scan the IP
-			result, err := s.scanner.ScanIP(ipAddr, s.config)
+			result, err := s.scanner.ScanIP(ipAddr, s.config, message.BatchID, "")
 			if err != nil {
 				log.L().Error("Scan failed", zap.String("event", "scan_failed"), zap.String("ip", ipAddr), zap.Error(err))
 				return

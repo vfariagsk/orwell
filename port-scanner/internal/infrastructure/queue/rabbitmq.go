@@ -22,7 +22,7 @@ type RabbitMQManager struct {
 	enrichmentQueue      string
 	serviceAnalysisQueue string
 	workerID             string
-	scanHandler          func(string, *domain.ScanConfig) (*domain.ScanResult, error)
+	scanHandler          func(string, *domain.ScanConfig, string, string) (*domain.ScanResult, error)
 	scanConfig           *domain.ScanConfig
 	dbManager            *database.MongoDBManager
 }
@@ -79,7 +79,7 @@ func (r *RabbitMQManager) SetMongoDBManager(dbManager *database.MongoDBManager) 
 }
 
 // SetScanHandler sets the scan handler function
-func (r *RabbitMQManager) SetScanHandler(handler func(string, *domain.ScanConfig) (*domain.ScanResult, error)) {
+func (r *RabbitMQManager) SetScanHandler(handler func(string, *domain.ScanConfig, string, string) (*domain.ScanResult, error)) {
 	r.scanHandler = handler
 }
 
@@ -149,7 +149,7 @@ func (r *RabbitMQManager) handleMessage(delivery amqp.Delivery) error {
 
 		// Perform the scan
 		startTime := time.Now()
-		result, err := r.scanHandler(ip, r.scanConfig)
+		result, err := r.scanHandler(ip, r.scanConfig, message.BatchID, r.workerID)
 		scanDuration := time.Since(startTime)
 
 		if err != nil {
@@ -165,6 +165,7 @@ func (r *RabbitMQManager) handleMessage(delivery amqp.Delivery) error {
 				ScanStartTime: startTime,
 				ScanEndTime:   time.Now(),
 				BatchID:       message.BatchID,
+				WorkerID:      r.workerID,
 			}
 
 			// Save to MongoDB if available

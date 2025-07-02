@@ -354,7 +354,7 @@ func (m *MongoDBManager) convertScanResultToDocument(result *domain.ScanResult) 
 		Status:        string(result.Status),
 		Error:         result.Error,
 		BatchID:       result.BatchID,
-		WorkerID:      "", // Will be set by the caller if needed
+		WorkerID:      result.WorkerID,
 		Ports:         portDocs,
 		OpenPorts:     len(openPorts),
 		TotalPorts:    len(result.Ports),
