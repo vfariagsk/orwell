@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"port-scanner/internal/domain"
+	"port-scanner/internal/infrastructure/database"
 	"port-scanner/pkg/log"
 
 	"github.com/streadway/amqp"
@@ -23,6 +24,7 @@ type RabbitMQManager struct {
 	workerID             string
 	scanHandler          func(string, *domain.ScanConfig) (*domain.ScanResult, error)
 	scanConfig           *domain.ScanConfig
+	dbManager            *database.MongoDBManager
 }
 
 // NewRabbitMQManager creates a new RabbitMQ manager
@@ -69,6 +71,11 @@ func NewRabbitMQManager(url, ipQueue, scanResultQueue, enrichmentQueue, serviceA
 		workerID:             workerID,
 		scanConfig:           domain.NewDefaultScanConfig(),
 	}, nil
+}
+
+// SetMongoDBManager sets the MongoDB manager for saving results
+func (r *RabbitMQManager) SetMongoDBManager(dbManager *database.MongoDBManager) {
+	r.dbManager = dbManager
 }
 
 // SetScanHandler sets the scan handler function
@@ -160,6 +167,13 @@ func (r *RabbitMQManager) handleMessage(delivery amqp.Delivery) error {
 				BatchID:       message.BatchID,
 			}
 
+			// Save to MongoDB if available
+			if r.dbManager != nil {
+				if saveErr := r.dbManager.SaveScanResult(failedResult); saveErr != nil {
+					log.L().Error("Failed to save failed result to MongoDB", zap.String("event", "mongodb_save_failed"), zap.Error(saveErr))
+				}
+			}
+
 			// Publish failed result
 			if pubErr := r.PublishScanResult(failedResult); pubErr != nil {
 				log.L().Error("Failed to publish failed result", zap.String("event", "publish_failed"), zap.Error(pubErr))
@@ -181,6 +195,13 @@ func (r *RabbitMQManager) handleMessage(delivery amqp.Delivery) error {
 		log.L().Info("Scan completed successfully", zap.String("event", "scan_completed"),
 			zap.String("ip", result.IP), zap.Bool("is_up", result.IsUp),
 			zap.Int("open_ports", len(result.GetOpenPorts())), zap.Duration("duration", scanDuration))
+
+		// Save to MongoDB if available
+		if r.dbManager != nil {
+			if saveErr := r.dbManager.SaveScanResult(result); saveErr != nil {
+				log.L().Error("Failed to save scan result to MongoDB", zap.String("event", "mongodb_save_failed"), zap.Error(saveErr))
+			}
+		}
 
 		// Publish scan result
 		if err := r.PublishScanResult(result); err != nil {

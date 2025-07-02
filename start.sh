@@ -1,7 +1,7 @@
 #!/bin/bash
 
-# Solomon Microservices Startup Script
-# Este script inicializa todos os serviços da plataforma Solomon
+# Orwell Microservices Platform - Startup Script
+# Este script configura e inicia toda a plataforma
 
 set -e
 
@@ -31,149 +31,177 @@ print_error() {
 
 # Verificar se Docker está instalado
 check_docker() {
-    print_status "Verificando se Docker está instalado..."
+    print_status "Checking Docker installation..."
     if ! command -v docker &> /dev/null; then
-        print_error "Docker não está instalado. Por favor, instale o Docker primeiro."
+        print_error "Docker is not installed. Please install Docker first."
         exit 1
     fi
     
     if ! command -v docker-compose &> /dev/null; then
-        print_error "Docker Compose não está instalado. Por favor, instale o Docker Compose primeiro."
+        print_error "Docker Compose is not installed. Please install Docker Compose first."
         exit 1
     fi
     
-    print_success "Docker e Docker Compose estão instalados"
+    print_success "Docker and Docker Compose are installed"
 }
 
-# Verificar se os diretórios dos serviços existem
-check_services() {
-    print_status "Verificando estrutura dos serviços..."
-    
-    if [ ! -d "ip-generator" ]; then
-        print_error "Diretório ip-generator não encontrado"
+# Verificar se Docker está rodando
+check_docker_running() {
+    print_status "Checking if Docker is running..."
+    if ! docker info &> /dev/null; then
+        print_error "Docker is not running. Please start Docker first."
         exit 1
     fi
+    print_success "Docker is running"
+}
+
+# Configurar ambiente
+setup_environment() {
+    print_status "Setting up environment..."
     
-    if [ ! -d "port-scanner" ]; then
-        print_error "Diretório port-scanner não encontrado"
-        exit 1
+    # Criar arquivo .env se não existir
+    if [ ! -f .env ]; then
+        print_status "Creating .env file from template..."
+        cp env.example .env
+        print_success "Created .env file"
+    else
+        print_warning ".env file already exists"
     fi
     
-    print_success "Estrutura dos serviços verificada"
+    # Criar diretórios necessários
+    mkdir -p logs/ip-generator logs/port-scanner backups mongodb/init
+    print_success "Created necessary directories"
 }
 
-# Criar diretórios necessários
-create_directories() {
-    print_status "Criando diretórios necessários..."
+# Build dos serviços
+build_services() {
+    print_status "Building services..."
     
-    mkdir -p logs/ip-generator
-    mkdir -p logs/port-scanner
-    mkdir -p rabbitmq/logs
-    mkdir -p nginx/ssl
-    mkdir -p backups
+    # Build IP Generator
+    print_status "Building IP Generator..."
+    cd ip-generator
+    if [ -f Makefile ]; then
+        make build
+    else
+        go mod tidy
+        go build -o bin/ip-generator cmd/server/main.go
+    fi
+    cd ..
     
-    print_success "Diretórios criados"
-}
-
-# Parar serviços existentes
-stop_existing() {
-    print_status "Parando serviços existentes..."
-    docker-compose down --remove-orphans 2>/dev/null || true
-    print_success "Serviços existentes parados"
-}
-
-# Construir imagens
-build_images() {
-    print_status "Construindo imagens Docker..."
-    docker-compose build --no-cache
-    print_success "Imagens construídas"
+    # Build Port Scanner
+    print_status "Building Port Scanner..."
+    cd port-scanner
+    if [ -f Makefile ]; then
+        make build
+    else
+        go mod tidy
+        go build -o bin/port-scanner cmd/server/main.go
+    fi
+    cd ..
+    
+    print_success "All services built successfully"
 }
 
 # Iniciar serviços
 start_services() {
-    print_status "Iniciando serviços..."
-    docker-compose up -d
+    print_status "Starting services..."
     
-    print_status "Aguardando serviços ficarem prontos..."
+    # Iniciar RabbitMQ primeiro
+    print_status "Starting RabbitMQ..."
+    docker-compose up -d rabbitmq
+    
+    # Aguardar RabbitMQ estar pronto
+    print_status "Waiting for RabbitMQ to be ready..."
     sleep 10
     
-    print_success "Serviços iniciados"
+    # Iniciar MongoDB
+    print_status "Starting MongoDB..."
+    docker-compose up -d mongodb
+    
+    # Aguardar MongoDB estar pronto
+    print_status "Waiting for MongoDB to be ready..."
+    sleep 15
+    
+    # Iniciar microserviços
+    print_status "Starting microservices..."
+    docker-compose up -d ip-generator port-scanner
+    
+    print_success "All services started"
 }
 
-# Verificar saúde dos serviços
-check_health() {
-    print_status "Verificando saúde dos serviços..."
+# Verificar status dos serviços
+check_services() {
+    print_status "Checking service status..."
     
-    # Aguardar RabbitMQ ficar pronto
-    print_status "Aguardando RabbitMQ..."
-    for i in {1..30}; do
-        if curl -s http://localhost:15672 > /dev/null 2>&1; then
-            print_success "RabbitMQ está pronto"
-            break
-        fi
-        if [ $i -eq 30 ]; then
-            print_warning "RabbitMQ demorou para ficar pronto"
-        fi
-        sleep 2
-    done
+    # Aguardar um pouco para os serviços inicializarem
+    sleep 10
+    
+    # Verificar RabbitMQ
+    if curl -s -f http://localhost:15672/api/overview >/dev/null 2>&1; then
+        print_success "RabbitMQ is healthy"
+    else
+        print_warning "RabbitMQ health check failed"
+    fi
+    
+    # Verificar MongoDB
+    if docker exec solomon-mongodb mongosh --eval "db.adminCommand('ping')" >/dev/null 2>&1; then
+        print_success "MongoDB is healthy"
+    else
+        print_warning "MongoDB health check failed"
+    fi
     
     # Verificar IP Generator
-    print_status "Verificando IP Generator..."
-    if curl -s http://localhost:8080/api/v1/health > /dev/null 2>&1; then
-        print_success "IP Generator está saudável"
+    if curl -s -f http://localhost:8080/api/v1/health >/dev/null 2>&1; then
+        print_success "IP Generator is healthy"
     else
-        print_warning "IP Generator pode não estar pronto ainda"
+        print_warning "IP Generator health check failed"
     fi
     
     # Verificar Port Scanner
-    print_status "Verificando Port Scanner..."
-    if curl -s http://localhost:8081/api/v1/health > /dev/null 2>&1; then
-        print_success "Port Scanner está saudável"
+    if curl -s -f http://localhost:8081/api/v1/health >/dev/null 2>&1; then
+        print_success "Port Scanner is healthy"
     else
-        print_warning "Port Scanner pode não estar pronto ainda"
+        print_warning "Port Scanner health check failed"
     fi
 }
 
-# Mostrar informações finais
+# Mostrar informações úteis
 show_info() {
     echo ""
+    echo "🎉 Solomon Microservices Platform is ready!"
     echo "=========================================="
-    echo " Orwell Microservices Platform Started!"
-    echo "=========================================="
     echo ""
-    echo "📋 Services Available:"
-    echo "  • IP Generator:     http://localhost:8080"
-    echo "  • Port Scanner:     http://localhost:8081"
-    echo "  • RabbitMQ UI:      http://localhost:15672"
-    echo "  • Nginx Proxy:      http://localhost"
+    echo "📊 Service URLs:"
+    echo "  RabbitMQ Management: http://localhost:15672 (admin/admin123)"
+    echo "  IP Generator API:    http://localhost:8080"
+    echo "  Port Scanner API:    http://localhost:8081"
+    echo "  MongoDB:             localhost:27017"
     echo ""
-    echo "🔑 RabbitMQ Credentials:"
-    echo "  • Usuário: admin"
-    echo "  • Senha:  admin123"
+    echo "🔧 Useful Commands:"
+    echo "  Check status:        make status"
+    echo "  View logs:           make logs"
+    echo "  Stop services:       make down"
+    echo "  MongoDB shell:       make mongodb-shell"
+    echo "  API examples:        make api-examples"
     echo ""
-    echo "📊 Useful Commands:"
-    echo "  • Ver status:       make status"
-    echo "  • Ver logs:         make logs"
-    echo "  • Stop services:    make down"
-    echo "  • Full demo:        make demo"
-    echo ""
-    echo "🚀 Quick Test:"
-    echo "  curl -X POST http://localhost:8080/api/v1/generate -H 'Content-Type: application/json' -d '{\"count\": 5}'"
+    echo "📝 Quick Test:"
+    echo "  curl http://localhost:8080/api/v1/health"
+    echo "  curl http://localhost:8081/api/v1/health"
     echo ""
 }
 
 # Função principal
 main() {
-    echo "Starting Orwell Microservices Platform..."
+    echo "🚀 Starting Solomon Microservices Platform Setup"
+    echo "================================================"
     echo ""
     
     check_docker
-    check_services
-    create_directories
-    stop_existing
-    build_images
+    check_docker_running
+    setup_environment
+    build_services
     start_services
-    check_health
+    check_services
     show_info
 }
 

@@ -13,6 +13,7 @@ import (
 	"port-scanner/internal/domain"
 	"port-scanner/internal/infrastructure/banner"
 	"port-scanner/internal/infrastructure/config"
+	"port-scanner/internal/infrastructure/database"
 	httphandler "port-scanner/internal/infrastructure/http"
 	"port-scanner/internal/infrastructure/queue"
 	"port-scanner/pkg/log"
@@ -48,6 +49,25 @@ func main() {
 	bannerService := banner.NewZGrabBannerService(scanConfig.BannerTimeout)
 	scanner.SetBannerGrabber(bannerService)
 
+	// Create MongoDB manager if enabled
+	var dbManager *database.MongoDBManager
+	if cfg.MongoDB.EnableDatabase {
+		dbManager, err = database.NewMongoDBManager(
+			cfg.MongoDB.ConnectionString,
+			cfg.MongoDB.DatabaseName,
+			cfg.MongoDB.CollectionName,
+		)
+		if err != nil {
+			log.L().Error("Failed to connect to MongoDB", zap.Error(err))
+			log.L().Warn("Continuing without MongoDB - results will not be persisted")
+		} else {
+			log.L().Info("MongoDB connected successfully",
+				zap.String("database", cfg.MongoDB.DatabaseName),
+				zap.String("collection", cfg.MongoDB.CollectionName))
+			defer dbManager.Close()
+		}
+	}
+
 	// Create queue manager
 	queueManager, err := queue.NewRabbitMQManager(
 		cfg.RabbitMQ.URL,
@@ -61,9 +81,12 @@ func main() {
 	}
 	defer queueManager.Close()
 
-	// Configure queue manager with scan handler and config
+	// Configure queue manager with scan handler, config, and MongoDB
 	queueManager.SetScanHandler(scanner.ScanIP)
 	queueManager.SetScanConfig(scanConfig)
+	if dbManager != nil {
+		queueManager.SetMongoDBManager(dbManager)
+	}
 
 	// Create application services
 	scanEngine := application.NewScanEngineService(scanner, queueManager, scanConfig)
@@ -81,7 +104,7 @@ func main() {
 	router.Use(gin.Recovery())
 
 	// Create and register HTTP handlers
-	httpHandler := httphandler.NewHandler(scanEngine, scanner)
+	httpHandler := httphandler.NewHandler(scanEngine, scanner, dbManager)
 	httpHandler.RegisterRoutes(router)
 
 	// Create HTTP server

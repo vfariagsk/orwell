@@ -56,6 +56,30 @@ services:
       retries: 3
       start_period: 40s
 
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: solomon-mongodb
+    hostname: mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=admin123
+      - MONGO_INITDB_DATABASE=solomon
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongodb/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - solomon-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 40s
+
   # Port Scanner Microservice
   port-scanner:
     build:
@@ -71,6 +95,10 @@ services:
       - RABBITMQ_SCAN_RESULT_QUEUE=scan_result_queue
       - RABBITMQ_ENRICHMENT_QUEUE=enrichment_queue
       - RABBITMQ_SERVICE_ANALYSIS_QUEUE=service_analysis_queue
+      - MONGODB_CONNECTION_STRING=mongodb://admin:admin123@mongodb:27017/solomon?authSource=admin
+      - MONGODB_DATABASE_NAME=solomon
+      - MONGODB_COLLECTION_NAME=scan_results
+      - MONGODB_ENABLE_DATABASE=true
       - SERVER_HOST=0.0.0.0
       - SERVER_PORT=8081
       - LOG_LEVEL=info
@@ -85,6 +113,8 @@ services:
       - solomon-network
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      mongodb:
         condition: service_healthy
     restart: unless-stopped
     healthcheck:
@@ -120,6 +150,8 @@ services:
 
 volumes:
   rabbitmq_data:
+    driver: local
+  mongodb_data:
     driver: local
   redis_data:
     driver: local

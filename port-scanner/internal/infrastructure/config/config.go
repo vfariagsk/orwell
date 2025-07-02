@@ -14,6 +14,7 @@ type Config struct {
 	Server   ServerConfig   `mapstructure:"server"`
 	RabbitMQ RabbitMQConfig `mapstructure:"rabbitmq"`
 	Scan     ScanConfig     `mapstructure:"scan"`
+	MongoDB  MongoDBConfig  `mapstructure:"mongodb"`
 }
 
 // ServerConfig represents server configuration
@@ -29,6 +30,14 @@ type RabbitMQConfig struct {
 	ScanResultQueue      string `mapstructure:"scan_result_queue"`
 	EnrichmentQueue      string `mapstructure:"enrichment_queue"`
 	ServiceAnalysisQueue string `mapstructure:"service_analysis_queue"`
+}
+
+// MongoDBConfig represents MongoDB configuration
+type MongoDBConfig struct {
+	ConnectionString string `mapstructure:"connection_string"`
+	DatabaseName     string `mapstructure:"database_name"`
+	CollectionName   string `mapstructure:"collection_name"`
+	EnableDatabase   bool   `mapstructure:"enable_database"`
 }
 
 // ScanConfig represents scan configuration
@@ -60,6 +69,11 @@ func LoadConfig(configPath string) (*Config, error) {
 	viper.SetDefault("rabbitmq.scan_result_queue", "scan_result_queue")
 	viper.SetDefault("rabbitmq.enrichment_queue", "enrichment_queue")
 	viper.SetDefault("rabbitmq.service_analysis_queue", "service_analysis_queue")
+
+	viper.SetDefault("mongodb.connection_string", "mongodb://localhost:27017")
+	viper.SetDefault("mongodb.database_name", "solomon")
+	viper.SetDefault("mongodb.collection_name", "scan_results")
+	viper.SetDefault("mongodb.enable_database", true)
 
 	viper.SetDefault("scan.ping_timeout", "5s")
 	viper.SetDefault("scan.connect_timeout", "3s")

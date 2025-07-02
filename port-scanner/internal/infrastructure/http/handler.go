@@ -7,6 +7,7 @@ import (
 
 	"port-scanner/internal/application"
 	"port-scanner/internal/domain"
+	"port-scanner/internal/infrastructure/database"
 	"port-scanner/pkg/log"
 
 	"go.uber.org/zap"
@@ -18,13 +19,15 @@ import (
 type Handler struct {
 	scanEngine *application.ScanEngineService
 	scanner    domain.Scanner
+	dbManager  *database.MongoDBManager
 }
 
 // NewHandler creates a new HTTP handler
-func NewHandler(scanEngine *application.ScanEngineService, scanner domain.Scanner) *Handler {
+func NewHandler(scanEngine *application.ScanEngineService, scanner domain.Scanner, dbManager *database.MongoDBManager) *Handler {
 	return &Handler{
 		scanEngine: scanEngine,
 		scanner:    scanner,
+		dbManager:  dbManager,
 	}
 }
 
@@ -39,23 +42,38 @@ func (h *Handler) RegisterRoutes(router *gin.Engine) {
 		api.POST("/scan", h.ScanIP)
 		api.POST("/scan/batch", h.ScanBatch)
 		api.GET("/ports/:ip", h.GetOpenPorts)
+
+		// MongoDB endpoints
+		api.GET("/db/stats", h.GetDatabaseStats)
+		api.GET("/db/result/:ip", h.GetDatabaseResult)
+		api.GET("/db/batch/:batch_id", h.GetDatabaseBatchResults)
+		api.GET("/db/search", h.SearchDatabaseResults)
 	}
 }
 
 // HealthCheck returns the health status of the service
 func (h *Handler) HealthCheck(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
+	health := gin.H{
 		"status":    "healthy",
 		"timestamp": time.Now().Unix(),
 		"service":   "port-scanner",
-	})
+	}
+
+	// Add MongoDB status if available
+	if h.dbManager != nil {
+		health["mongodb"] = "connected"
+	} else {
+		health["mongodb"] = "disabled"
+	}
+
+	c.JSON(http.StatusOK, health)
 }
 
 // GetStats returns scanning statistics
 func (h *Handler) GetStats(c *gin.Context) {
 	stats := h.scanEngine.GetScanStats()
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"total_scanned":     stats.TotalScanned,
 		"successful_scans":  stats.SuccessfulScans,
 		"failed_scans":      stats.FailedScans,
@@ -63,7 +81,16 @@ func (h *Handler) GetStats(c *gin.Context) {
 		"start_time":        stats.StartTime.Unix(),
 		"last_scan_time":    stats.LastScanTime.Unix(),
 		"uptime":            time.Since(stats.StartTime).String(),
-	})
+	}
+
+	// Add database stats if available
+	if h.dbManager != nil {
+		if dbStats, err := h.dbManager.GetScanStats(); err == nil {
+			response["database_stats"] = dbStats
+		}
+	}
+
+	c.JSON(http.StatusOK, response)
 }
 
 // GetBannerStats returns banner grabbing statistics
@@ -269,6 +296,97 @@ func (h *Handler) GetOpenPorts(c *gin.Context) {
 		"ip":         ip,
 		"open_ports": ports,
 		"count":      len(openPorts),
+	})
+}
+
+// GetDatabaseStats returns statistics from MongoDB
+func (h *Handler) GetDatabaseStats(c *gin.Context) {
+	if h.dbManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB not available"})
+		return
+	}
+
+	stats, err := h.dbManager.GetScanStats()
+	if err != nil {
+		log.L().Error("Failed to get database stats", zap.String("event", "db_stats_failed"), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve database statistics"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
+// GetDatabaseResult returns a scan result from MongoDB
+func (h *Handler) GetDatabaseResult(c *gin.Context) {
+	if h.dbManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB not available"})
+		return
+	}
+
+	ip := c.Param("ip")
+	if ip == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "IP address is required"})
+		return
+	}
+
+	result, err := h.dbManager.GetScanResult(ip)
+	if err != nil {
+		log.L().Error("Failed to get database result", zap.String("event", "db_result_failed"), zap.String("ip", ip), zap.Error(err))
+		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, result)
+}
+
+// GetDatabaseBatchResults returns all scan results for a batch from MongoDB
+func (h *Handler) GetDatabaseBatchResults(c *gin.Context) {
+	if h.dbManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB not available"})
+		return
+	}
+
+	batchID := c.Param("batch_id")
+	if batchID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Batch ID is required"})
+		return
+	}
+
+	results, err := h.dbManager.GetScanResultsByBatch(batchID)
+	if err != nil {
+		log.L().Error("Failed to get batch results", zap.String("event", "db_batch_failed"), zap.String("batch_id", batchID), zap.Error(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"batch_id": batchID,
+		"count":    len(results),
+		"results":  results,
+	})
+}
+
+// SearchDatabaseResults searches scan results in MongoDB
+func (h *Handler) SearchDatabaseResults(c *gin.Context) {
+	if h.dbManager == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"error": "MongoDB not available"})
+		return
+	}
+
+	// Get query parameters
+	status := c.Query("status")
+	isUp := c.Query("is_up")
+	limit := c.DefaultQuery("limit", "100")
+
+	// TODO: Implement search functionality in MongoDB manager
+	// For now, return a placeholder response
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Search functionality not yet implemented",
+		"filters": gin.H{
+			"status": status,
+			"is_up":  isUp,
+			"limit":  limit,
+		},
 	})
 }
 
